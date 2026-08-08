@@ -92,7 +92,7 @@ Catch-all:
 1. Orient: unifi_status (confirm readonly), unifi_get_info, unifi_list_sites.
 2. Diagnose: unifi_list_devices, unifi_get_device_statistics, unifi_list_clients, unifi_list_wans.
 3. Security review: unifi_list_firewall_policies, unifi_list_acl_rules, unifi_list_dns_policies, unifi_list_firewall_zones.
-4. Change (only with UNIFI_MODE=readwrite and user confirmation): unifi_block_client, firewall/ACL changes, device actions.
+4. Change (only with UNIFI_MODE=readwrite and user confirmation): unifi_block_client, firewall/ACL changes, device actions. Verify each change with the matching read tool: unifi_list_acl_rules after a block, unifi_get_device_statistics after a restart.
 
 ## Rules
 
