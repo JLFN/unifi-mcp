@@ -6,7 +6,10 @@ rust-version = "1.88"
 description = "UniFi Network API MCP server: diagnostics, security, and firewall tooling with a safe read-only default"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["mcp", "unifi", "network", "firewall", "diagnostics", "security"]
+repository = "https://github.com/JLFN/unifi-mcp"
+homepage = "https://github.com/JLFN/unifi-mcp"
+documentation = "https://docs.rs/unifi-mcp"
+keywords = ["mcp", "unifi", "network", "firewall", "security"]
 categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
