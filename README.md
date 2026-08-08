@@ -1,5 +1,10 @@
 # unifi-mcp — UniFi Network API for AI assistants
 
+[![crates.io](https://img.shields.io/crates/v/unifi-mcp.svg?style=for-the-badge&color=fc8d62&logo=rust)](https://crates.io/crates/unifi-mcp)
+[![docs.rs](https://img.shields.io/badge/docs.rs-unifi_mcp-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs)](https://docs.rs/unifi-mcp)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-97ca00?style=for-the-badge)](LICENSE-MIT)
+[![github](https://img.shields.io/badge/github-JLFN_unifi_mcp-8da0cb?style=for-the-badge&labelColor=555555&logo=github)](https://github.com/JLFN/unifi-mcp)
+
 An MCP server that gives AI assistants the full UniFi Network API v10.4.57
 (developer.ui.com) — diagnostics, security review, firewall management,
 clients, devices, and more — through one stdio server. It is safe by
