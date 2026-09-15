@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Shared helpers (colors, logging, ensure_rust_toolchain) live in utils.sh;
+# sourcing it keeps this script runnable on its own while sharing exactly one
+# toolchain implementation with build.sh.
+if ! declare -f ensure_rust_toolchain >/dev/null 2>&1; then
+    # shellcheck source=utils.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
+fi
+
 # Platform to Rust target mapping (Linux only)
 get_rust_target() {
     local platform="$1"
@@ -19,6 +27,10 @@ get_rust_target() {
 
 step_setup_rust() {
     write_step "Setting up Rust Environment"
+
+    # Default the platform so this step is also usable standalone; a CI wrapper
+    # may still pass PLATFORM explicitly.
+    PLATFORM="${PLATFORM:-$(get_current_platform)}"
     
     local cargo_env="$HOME/.cargo/env"
     local rustup_init_url="https://sh.rustup.rs"
@@ -30,10 +42,16 @@ step_setup_rust() {
     
     # Function to get installed Rust version
     get_rust_version() {
-        if command_exists rustc; then
-            rustc --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
-        else
+        local version
+        version="$(rustc --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        # A rustup shim with no default toolchain satisfies command_exists but
+        # yields no version, so an empty result must read as "none", never as
+        # the empty string, or the update branch below would treat a broken
+        # toolchain as an outdated one and reinstall.
+        if [[ -z "$version" ]]; then
             echo "none"
+        else
+            echo "$version"
         fi
     }
     
@@ -85,12 +103,6 @@ step_setup_rust() {
         needs_install=true
     else
         echo -e "${GREEN}Rust is up to date: $current_version${NC}"
-        
-        # Verify rustup has a default toolchain configured
-        if ! rustup default >/dev/null 2>&1; then
-            echo -e "${YELLOW}No default toolchain configured. Setting up...${NC}"
-            rustup default stable
-        fi
     fi
     
     # Install or update Rust
@@ -127,12 +139,13 @@ step_setup_rust() {
         echo -e "${GREEN}Installed version: $current_version${NC}"
     fi
     
-    # Ensure rustup has a default toolchain
-    if command_exists rustup; then
-        if ! rustup default >/dev/null 2>&1; then
-            echo -e "${YELLOW}Setting default toolchain to stable...${NC}"
-            rustup default stable
-        fi
+    # Make the toolchain usable through the same function build.sh calls, so
+    # the provisioning path and the build path cannot disagree about what a
+    # working toolchain is (or about how to repair one).
+    if ! ensure_rust_toolchain; then
+        write_error "Rust toolchain is still unusable after setup."
+        write_end_step
+        exit 1
     fi
     
     # Get target information
@@ -175,8 +188,9 @@ step_setup_rust() {
     echo -e "${CYAN}Installed Rust targets:${NC}"
     rustup target list --installed | sed 's/^/  - /'
     
-    # Save Rust info
-    cat > "$ARTIFACTS_PATH/rust-info.json" << EOF
+    # Save Rust info when the caller provided an artifacts directory
+    if [[ -n "${ARTIFACTS_PATH:-}" ]]; then
+        cat > "$ARTIFACTS_PATH/rust-info.json" << EOF
 {
     "rustc": "$rust_version",
     "cargo": "$cargo_version",
@@ -186,6 +200,9 @@ step_setup_rust() {
     "updated": $([ "$needs_install" == "true" ] && echo "true" || echo "false")
 }
 EOF
+    else
+        echo -e "${GRAY}ARTIFACTS_PATH not set, skipping rust-info.json${NC}"
+    fi
     
     write_end_step
 }
