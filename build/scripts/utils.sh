@@ -117,3 +117,57 @@ add_test_result() {
             ;;
     esac
 }
+
+# Ensure a usable Rust toolchain, not merely a cargo on PATH. A rustup shim
+# with no default toolchain passes "command -v cargo" and then fails on every
+# invocation, which turns a missing toolchain into a confusing failure much
+# later in the build, so the tools are run rather than looked up. Repair order
+# mirrors the Windows builder, which already selects a default toolchain:
+# source the cargo env, select stable when rustup is present, install Rust when
+# cargo is absent, and only then stop with an actionable message.
+ensure_rust_toolchain() {
+    local cargo_env="$HOME/.cargo/env"
+    [[ -f "$cargo_env" ]] && source "$cargo_env"
+
+    if cargo --version >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if command_exists rustup; then
+        echo -e "${YELLOW}Rust is installed but no toolchain is active. Selecting stable...${NC}"
+        rustup default stable >/dev/null 2>&1 || {
+            rustup toolchain install stable --profile minimal || true
+            rustup default stable || true
+        }
+        [[ -f "$cargo_env" ]] && source "$cargo_env"
+        if cargo --version >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
+            echo -e "${GREEN}Toolchain ready: $(rustc --version)${NC}"
+            return 0
+        fi
+    elif ! command_exists cargo; then
+        echo -e "${YELLOW}Rust not found. Installing...${NC}"
+        if command_exists curl; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --default-toolchain stable --profile minimal || true
+        elif command_exists wget; then
+            wget -qO- https://sh.rustup.rs \
+                | sh -s -- -y --default-toolchain stable --profile minimal || true
+        else
+            echo -e "${RED}Error: neither curl nor wget is available to install Rust.${NC}" >&2
+            return 1
+        fi
+        [[ -f "$cargo_env" ]] && source "$cargo_env"
+        if cargo --version >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
+            echo -e "${GREEN}Rust installed: $(rustc --version)${NC}"
+            return 0
+        fi
+    fi
+
+    echo -e "${RED}Error: cargo and rustc cannot run, so no build is possible.${NC}" >&2
+    if command_exists rustup; then
+        echo -e "${YELLOW}Repair the toolchain with: rustup default stable${NC}" >&2
+    else
+        echo -e "${YELLOW}Install Rust with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable${NC}" >&2
+    fi
+    return 1
+}

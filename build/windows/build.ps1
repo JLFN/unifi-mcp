@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Setup Paths — build/windows/ → project root (two levels up), or the explicit
+# Setup Paths - build/windows/ -> project root (two levels up), or the explicit
 # -ProjectDir when building any other Rust project from the shared builder.
 $BuildDir = $PSScriptRoot
 $OpenGrokDir = Split-Path -Parent (Split-Path -Parent $BuildDir)
@@ -61,6 +61,30 @@ if (Get-Command rustup -ErrorAction SilentlyContinue) {
 } elseif (Test-Path "$cargoPath\rustup.exe") {
     Start-Process -FilePath "$cargoPath\rustup.exe" -ArgumentList "default", "stable-x86_64-pc-windows-gnu" -Wait -NoNewWindow
 }
+
+# A rustup shim with no usable toolchain satisfies Get-Command cargo and then
+# fails on every invocation, so the tools are run rather than looked up, and a
+# registered-but-unusable toolchain is repaired instead of failing later in the
+# build. Mirrors ensure_rust_toolchain() in scripts/utils.sh.
+function Test-RustToolchain {
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { return $false }
+    & cargo --version *> $null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & rustc --version *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+if (-not (Test-RustToolchain)) {
+    Write-Host "No usable Rust toolchain. Installing and selecting stable..." -ForegroundColor Yellow
+    if (Get-Command rustup -ErrorAction SilentlyContinue) {
+        & rustup toolchain install stable-x86_64-pc-windows-gnu
+        & rustup default stable-x86_64-pc-windows-gnu
+    }
+    if (-not (Test-RustToolchain)) {
+        throw "cargo and rustc cannot run. Repair with: rustup default stable-x86_64-pc-windows-gnu"
+    }
+}
+Write-Host "Rust: $(& rustc --version)" -ForegroundColor Green
 
 # Ensure MinGW (dlltool.exe/gcc.exe) is installed for the GNU toolchain
 $mingwBin = "C:\msys64\mingw64\bin"

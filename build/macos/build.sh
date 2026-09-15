@@ -9,8 +9,8 @@ BUILD_DIR="$(dirname "$SCRIPT_DIR")"
 SHARED_DIR="$BUILD_DIR/scripts"
 # Default project root: two directories above this script, which matches a
 # build/<os>/build.sh embedded in a project. Override with -p/--project (or
-# the PROJECT_ROOT env var) to build any other Rust project directly from the
-# shared builder at /data/build.
+# the PROJECT_ROOT env var) to build any other Rust project; every path
+# this script needs is resolved relative to itself.
 PROJECT_ROOT="${PROJECT_ROOT:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
 
 # The cargo target to build is auto-detected from the project (see
@@ -59,7 +59,7 @@ if [[ ! -f "$PROJECT_ROOT/Cargo.toml" ]]; then
     exit 1
 fi
 
-write_section "Open Grok Builder — macOS"
+write_section "Open Grok Builder - macOS"
 echo -e "Configuration: ${GREEN}$CONFIGURATION${NC}"
 
 # --- System deps (macOS via Homebrew) ---
@@ -82,10 +82,12 @@ write_end_step
 # --- Rust ---
 write_step "Checking Rust"
 
-if ! command -v cargo &>/dev/null; then
-    echo -e "${YELLOW}Rust not found. Installing...${NC}"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
+# ensure_rust_toolchain() lives in scripts/utils.sh and is shared with
+# scripts/setup_rust.sh, the full provisioning path (version check, install or
+# update, cross targets, artifacts report).
+if ! ensure_rust_toolchain; then
+    write_end_step
+    exit 1
 fi
 
 echo -e "${GREEN}rustc: $(rustc --version)${NC}"
@@ -100,30 +102,37 @@ detect_bin_name() {
         return 0
     fi
 
-    local json bin
+    # Ask cargo itself which binary target to build. The metadata JSON is
+    # parsed with awk, so the builder needs neither jq nor python3: every
+    # target object cargo emits is flat (scalars and string arrays, no
+    # nested objects), so the first object whose kind array carries "bin"
+    # can be matched directly and its name read out. This also keeps the
+    # bin variable always initialised, so a host without the parsers can
+    # never trip the set -u (unbound variable) abort.
+    local json bin=""
     json="$(cargo metadata --manifest-path "$PROJECT_ROOT/Cargo.toml" --no-deps --format-version 1 2>/dev/null || true)"
     if [[ -z "$json" ]]; then
-        echo -e "${RED}Error: could not read Cargo metadata — is this a Cargo project?${NC}" >&2
+        echo -e "${RED}Error: could not read Cargo metadata - is this a Cargo project?${NC}" >&2
         echo -e "${YELLOW}Specify the binary explicitly with: $0 --bin NAME (or BIN_NAME=NAME)${NC}" >&2
         return 1
     fi
 
-    if command -v python3 &>/dev/null; then
-        bin="$(printf '%s' "$json" | python3 -c '
-import json, sys
-try:
-    m = json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
-bins = [t["name"] for p in m["packages"] for t in p["targets"] if "bin" in t["kind"]]
-print(bins[0] if bins else "")
-')" || bin=""
-    elif command -v jq &>/dev/null; then
-        bin="$(printf '%s' "$json" | jq -r '[.packages[].targets[] | select(.kind | index("bin")) | .name][0]' 2>/dev/null)" || bin=""
-    fi
+    bin="$(printf '%s' "$json" | awk '
+        {
+            rest = $0
+            while (match(rest, /\{[^{}]*"kind":\[[^]]*"bin"[^]]*\][^{}]*\}/)) {
+                obj = substr(rest, RSTART, RLENGTH)
+                if (match(obj, /"name":"[^"]*"/)) {
+                    print substr(obj, RSTART + 8, RLENGTH - 9)
+                    exit
+                }
+                rest = substr(rest, RSTART + RLENGTH)
+            }
+        }
+    ')" || true
 
     if [[ -z "$bin" ]]; then
-        echo -e "${RED}Error: could not determine a binary target (no binaries, or python3/jq missing).${NC}" >&2
+        echo -e "${RED}Error: no binary target in $PROJECT_ROOT (library-only project?).${NC}" >&2
         echo -e "${YELLOW}Specify the binary explicitly with: $0 --bin NAME (or BIN_NAME=NAME)${NC}" >&2
         return 1
     fi
@@ -156,7 +165,7 @@ write_end_step
 # --- Copy to bin/ ---
 mkdir -p "$PROJECT_ROOT/bin"
 cp "$SRC" "$PROJECT_ROOT/bin/$BIN_NAME"
-echo -e "${GREEN}Binary → $PROJECT_ROOT/bin/$BIN_NAME${NC}"
+echo -e "${GREEN}Binary -> $PROJECT_ROOT/bin/$BIN_NAME${NC}"
 
 # --- Remove target/ ---
 write_step "Removing target/ (~100GB freed)"
